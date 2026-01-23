@@ -1,5 +1,3 @@
-// src/worker.js — Cloudflare Worker proxy for Gimkit with /join injection
-
 const GIMKIT_ORIGIN = "https://www.gimkit.com";
 const BUNDLE_SOURCE =
   "https://raw.githubusercontent.com/TheLazySquid/GimkitCheat/main/build/bundle.js";
@@ -55,31 +53,41 @@ async function proxyRequest(request, url) {
   return fetch(url, init);
 }
 
+function allowIframe(response) {
+  const newHeaders = new Headers(response.headers);
+  newHeaders.set("X-Frame-Options", "ALLOWALL");
+  newHeaders.set("Content-Security-Policy", "frame-ancestors *");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: newHeaders
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    // Assets (images, fonts, media, etc.)
     if (isAsset(pathname)) {
       const target = GIMKIT_ORIGIN + pathname + url.search;
-      return proxyRequest(request, target);
+      const resp = await proxyRequest(request, target);
+      return allowIframe(resp);
     }
 
-    // Static / API (includes /api/login)
     if (isStaticLike(pathname)) {
       const target = GIMKIT_ORIGIN + pathname + url.search;
-      return proxyRequest(request, target);
+      const resp = await proxyRequest(request, target);
+      return allowIframe(resp);
     }
 
-    // /join — inject bundle.js and rewrite cdn-map-assets-url
     if (pathname === "/join") {
       const target = GIMKIT_ORIGIN + "/join" + url.search;
       const resp = await proxyRequest(request, target);
       const contentType = resp.headers.get("content-type") || "";
 
       if (!contentType.includes("text/html")) {
-        return resp;
+        return allowIframe(resp);
       }
 
       let html = await resp.text();
@@ -99,15 +107,17 @@ export default {
       const newHeaders = new Headers(resp.headers);
       newHeaders.set("content-type", "text/html; charset=utf-8");
 
-      return new Response(html, {
-        status: resp.status,
-        statusText: resp.statusText,
-        headers: newHeaders
-      });
+      return allowIframe(
+        new Response(html, {
+          status: resp.status,
+          statusText: resp.statusText,
+          headers: newHeaders
+        })
+      );
     }
 
-    // Root and everything else (e.g. /login, /home, etc.) — plain proxy
     const target = GIMKIT_ORIGIN + pathname + url.search;
-    return proxyRequest(request, target);
+    const resp = await proxyRequest(request, target);
+    return allowIframe(resp);
   }
 };
