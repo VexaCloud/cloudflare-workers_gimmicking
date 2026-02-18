@@ -53,8 +53,25 @@ async function proxyRequest(request, url) {
   return fetch(url, init);
 }
 
+// Rewrite Set-Cookie so browser will store them for the worker domain
+function rewriteSetCookieHeaders(headers) {
+  const cookies = headers.getAll("set-cookie");
+  if (!cookies || cookies.length === 0) return;
+
+  headers.delete("set-cookie");
+
+  for (const cookie of cookies) {
+    const rewritten = cookie.replace(/Domain=\.?gimkit\.com;?\s*/i, "");
+    headers.append("set-cookie", rewritten);
+  }
+}
+
 function allowIframe(response) {
   const newHeaders = new Headers(response.headers);
+
+  // rewrite cookies before sending to client
+  rewriteSetCookieHeaders(newHeaders);
+
   newHeaders.set("X-Frame-Options", "ALLOWALL");
   newHeaders.set("Content-Security-Policy", "frame-ancestors *");
   return new Response(response.body, {
@@ -116,6 +133,7 @@ export default {
 
       const newHeaders = new Headers(resp.headers);
       newHeaders.set("content-type", "text/html; charset=utf-8");
+      rewriteSetCookieHeaders(newHeaders);
 
       return allowIframe(
         new Response(html, {
