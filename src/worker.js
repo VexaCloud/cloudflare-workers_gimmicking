@@ -69,6 +69,16 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    // --- WebSocket passthrough for hosting/joining games ---
+    if (request.headers.get("upgrade") === "websocket") {
+      const target = GIMKIT_ORIGIN + pathname + url.search;
+      // Do NOT touch origin/referer here
+      return fetch(target, {
+        method: request.method,
+        headers: request.headers
+      });
+    }
+
     if (isAsset(pathname)) {
       const target = GIMKIT_ORIGIN + pathname + url.search;
       const resp = await proxyRequest(request, target);
